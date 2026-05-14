@@ -27,7 +27,9 @@ async function main() {
     fs.mkdirSync(dir, { recursive: true });
   }
 
+  // システムのChromeを使う（GoogleがPlaywright Chromiumをブロックするため）
   const browser = await chromium.launch({
+    channel: 'chrome',
     headless: false,
     args: ['--no-sandbox'],
   });
