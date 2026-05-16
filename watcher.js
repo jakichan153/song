@@ -2,14 +2,16 @@
 /**
  * フォルダ監視デーモン
  *
- * watchDir 以下にサブフォルダを作り、WAV + PNG を入れると自動でDistroKidに登録します。
- * フォルダ名 = 曲タイトル（meta.jsonで上書き可）
+ * watchDir（queue）に WAV + PNG を入れると自動でDistroKidに登録します。
+ * サブフォルダ不要 — queue に直接ファイルを置くだけでOK。
  *
- * フォルダ例:
- *   ~/Distrokid/queue/Just for me/
+ * ファイル例:
+ *   ~/Distrokid/queue/
  *     just-for-me.wav   ← 音声（WAV）
  *     cover.png         ← カバーアート
- *     meta.json         ← (省略可) { "artist": "Mai", "genre": "J-Pop" }
+ *     meta.json         ← (省略可) { "title": "Just for me", "artist": "Mai", "genre": "J-Pop" }
+ *
+ * タイトルは meta.json の title → WAV ファイル名（拡張子なし）の順で決まります。
  */
 
 const fs = require('fs');
@@ -21,8 +23,8 @@ const config = require('./config.json');
 const AUDIO_EXTS = ['.wav', '.flac', '.mp3', '.aiff', '.aif'];
 const IMAGE_EXTS = ['.png', '.jpg', '.jpeg'];
 
-// 処理中のフォルダ（二重起動防止）
-const processing = new Set();
+// 処理中フラグ（二重起動防止）
+let processing = false;
 
 function log(msg) {
   const ts = new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -44,8 +46,8 @@ function findFile(dir, extensions) {
   }
 }
 
-function loadMeta(songDir) {
-  const metaPath = path.join(songDir, 'meta.json');
+function loadMeta(dir) {
+  const metaPath = path.join(dir, 'meta.json');
   if (fs.existsSync(metaPath)) {
     try { return JSON.parse(fs.readFileSync(metaPath, 'utf8')); }
     catch { return {}; }
@@ -53,30 +55,31 @@ function loadMeta(songDir) {
   return {};
 }
 
-async function processFolder(songDir) {
-  if (processing.has(songDir)) return;
+async function processQueue() {
+  if (processing) return;
+
+  const watchDir = config.watchDir;
 
   // WAVとPNGが両方揃っているか確認
-  const audioFile = findFile(songDir, AUDIO_EXTS);
-  const coverFile = findFile(songDir, IMAGE_EXTS);
+  const audioFile = findFile(watchDir, AUDIO_EXTS);
+  const coverFile = findFile(watchDir, IMAGE_EXTS);
   if (!audioFile || !coverFile) return;
 
-  processing.add(songDir);
-  const title = path.basename(songDir);
-  log(`📂 新しいフォルダを検出: "${title}"`);
+  processing = true;
+  log(`🎵 queue にファイルを検出 — 登録を開始します`);
   log(`   音声: ${audioFile} / カバー: ${coverFile}`);
 
-  // メタ情報の読み込み（フォルダ内の meta.json を優先）
-  const meta = loadMeta(songDir);
+  const meta = loadMeta(watchDir);
+  const title = meta.title || path.basename(audioFile, path.extname(audioFile));
   const params = {
-    title: meta.title || title,
+    title,
     artist: meta.artist || config.defaults.artist,
     genre: meta.genre || config.defaults.genre,
     subgenre: meta.subgenre || '',
     language: meta.language || config.defaults.language,
     releaseDate: meta.releaseDate || '',
-    audioPath: path.join(songDir, audioFile),
-    coverPath: path.join(songDir, coverFile),
+    audioPath: path.join(watchDir, audioFile),
+    coverPath: path.join(watchDir, coverFile),
   };
 
   try {
@@ -84,8 +87,8 @@ async function processFolder(songDir) {
 
     // 成功 → done フォルダへ移動
     const destDir = path.join(config.doneDir, `${title}_${timestamp()}`);
-    fs.mkdirSync(config.doneDir, { recursive: true });
-    fs.renameSync(songDir, destDir);
+    fs.mkdirSync(destDir, { recursive: true });
+    moveFiles(watchDir, destDir, [audioFile, coverFile, 'meta.json']);
     log(`✅ 登録完了: "${title}" → done フォルダへ移動`);
     log(`   URL: ${result.url}`);
 
@@ -94,12 +97,21 @@ async function processFolder(songDir) {
 
     // 失敗 → failed フォルダへ移動
     const failDir = path.join(config.failedDir, `${title}_${timestamp()}`);
-    fs.mkdirSync(config.failedDir, { recursive: true });
-    try { fs.renameSync(songDir, failDir); } catch {}
+    fs.mkdirSync(failDir, { recursive: true });
+    moveFiles(watchDir, failDir, [audioFile, coverFile, 'meta.json']);
     log(`   failed フォルダへ移動しました: ${failDir}`);
 
   } finally {
-    processing.delete(songDir);
+    processing = false;
+  }
+}
+
+function moveFiles(srcDir, destDir, filenames) {
+  for (const name of filenames) {
+    const src = path.join(srcDir, name);
+    if (fs.existsSync(src)) {
+      try { fs.renameSync(src, path.join(destDir, name)); } catch {}
+    }
   }
 }
 
@@ -112,32 +124,23 @@ function startWatcher() {
 
   log('====== DistroKid 自動登録 監視デーモン 起動 ======');
   log(`監視フォルダ: ${config.watchDir}`);
-  log('WAV + PNG が揃ったフォルダを検出したら自動登録します。');
+  log('queue に WAV + PNG を入れると自動登録します。');
   log('終了するには Ctrl+C を押してください。\n');
 
-  // 既存フォルダをスキャン
-  try {
-    for (const entry of fs.readdirSync(config.watchDir, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        const fullPath = path.join(config.watchDir, entry.name);
-        processFolder(fullPath);
-      }
-    }
-  } catch {}
+  // 起動時に既存ファイルをスキャン
+  processQueue();
 
-  // chokidar でリアルタイム監視
+  // chokidar でリアルタイム監視（queue 直下のみ、depth: 0）
   const watcher = chokidar.watch(config.watchDir, {
-    depth: 1,           // サブフォルダ1階層まで
+    depth: 0,
     ignoreInitial: true,
-    awaitWriteFinish: { stabilityThreshold: 3000, pollInterval: 500 }, // 書き込み完了を待つ
-    ignored: /(^|[\/\\])\../, // 隠しファイル無視
+    awaitWriteFinish: { stabilityThreshold: 3000, pollInterval: 500 },
+    ignored: /(^|[\/\\])\../,
   });
 
-  watcher.on('add', (filePath) => {
-    const songDir = path.dirname(filePath);
-    if (songDir === config.watchDir) return; // ルート直下は無視
-    // 少し待ってからチェック（ファイルコピー完了を待つ）
-    setTimeout(() => processFolder(songDir), 5000);
+  watcher.on('add', () => {
+    // ファイルコピー完了を待ってからチェック
+    setTimeout(() => processQueue(), 5000);
   });
 
   watcher.on('error', err => log(`監視エラー: ${err.message}`));
