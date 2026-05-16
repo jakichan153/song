@@ -5,8 +5,15 @@
   "sessionFile": "./session.json",
   "logFile": "./logs/watcher.log",
   "defaults": {
-    "artist": "Mai",
-    "genre": "Pop",
-    "language": "Japanese"
+    "artist": "Mai's",
+    "genre": "J-Pop",
+    "subgenre": "Rock",
+    "language": "Japanese",
+    "singerFirstName": "舞",
+    "singerLastName": "後藤",
+    "applePerformerRole": "Audio",
+    "applePerformerName": "Mai's",
+    "appleProducerRole": "プロデューサー",
+    "appleProducerName": "Mai's"
   }
 }
