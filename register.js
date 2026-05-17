@@ -124,6 +124,15 @@ async function register({ title, artist, genre, subgenre, secondaryGenre, langua
     if (songwriterFirstName) await fillInput(page, ['input[name="songwriter_real_name_first1"]'], songwriterFirstName);
     if (songwriterLastName)  await fillInput(page, ['input[name="songwriter_real_name_last1"]'],  songwriterLastName);
 
+    // Apple クレジット - 「クレジットを追加」ボタンをクリックしてフィールドを表示
+    const addCreditBtn = page.locator('text=クレジットを追加').first();
+    if (await addCreditBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await addCreditBtn.scrollIntoViewIfNeeded().catch(() => {});
+      await addCreditBtn.click();
+      await page.waitForTimeout(1500);
+      log('  「クレジットを追加」ボタンをクリックしました');
+    }
+
     // Apple クレジット - 演奏者
     if (performerRole) await selectOption(page, ['#track-1-performer-1-role'], performerRole);
     if (performerName) await fillInput(page,   ['#track-1-performer-1-name', 'input[name="performer-name"]'], performerName);
