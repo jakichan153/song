@@ -44,6 +44,19 @@ async function register({ title, artist, genre, subgenre, language, releaseDate,
       throw new Error('セッションが切れています。node setup.js を再実行してください。');
     }
 
+    // ダッシュボードにリダイレクトされた場合は「楽曲をアップロード」ボタンをクリック
+    const uploadBtnClicked = await clickIfVisible(page, [
+      'a:has-text("楽曲をアップロード")',
+      'button:has-text("楽曲をアップロード")',
+      'a:has-text("Upload Song")',
+      'button:has-text("Upload Song")',
+    ]);
+    if (uploadBtnClicked) {
+      log('  「楽曲をアップロード」ボタンをクリックしました');
+      await page.waitForTimeout(3000);
+      await ss('01b-after-upload-btn');
+    }
+
     // ページ上の全file inputを列挙してログに出す
     const allInputs = await page.evaluate(() => {
       return Array.from(document.querySelectorAll('input[type="file"]')).map((el, i) => ({
