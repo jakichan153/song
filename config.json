@@ -6,11 +6,14 @@
   "logFile": "./logs/watcher.log",
   "defaults": {
     "artist": "Mai",
-    "genre": "Pop",
+    "genre": "J-Pop",
+    "secondaryGenre": "Rock",
     "language": "Japanese",
     "songwriterFirstName": "舞",
     "songwriterLastName": "後藤",
-    "performerName": "Mai",
-    "producerName": "後藤 舞"
+    "performerRole": "Audio",
+    "performerName": "Mai's",
+    "producerRole": "プロデューサー",
+    "producerName": "Mai's"
   }
 }

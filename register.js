@@ -5,8 +5,8 @@ const path = require('path');
 const fs = require('fs');
 const config = require('./config.json');
 
-async function register({ title, artist, genre, subgenre, language, releaseDate, audioPath, coverPath,
-  songwriterFirstName, songwriterLastName, performerName, producerName }) {
+async function register({ title, artist, genre, subgenre, secondaryGenre, language, releaseDate, audioPath, coverPath,
+  songwriterFirstName, songwriterLastName, performerRole, performerName, producerRole, producerName }) {
   if (!fs.existsSync(config.sessionFile)) {
     throw new Error(`セッションファイルがありません。先に node setup.js を実行してください。`);
   }
@@ -104,66 +104,32 @@ async function register({ title, artist, genre, subgenre, language, releaseDate,
     }));
     log(`  フォームフィールド: ${JSON.stringify(allFormFields)}`);
 
-    // アルバム（リリース）タイトル
-    await fillInput(page, [
-      'input[name="albumTitle"]', 'input[name="album_title"]',
-      'input[name="song_title"]', 'input[name="title"]',
-      'input[placeholder*="title" i]', 'input[id*="albumTitle" i]',
-    ], title);
+    // アルバムタイトル
+    await fillInput(page, ['input[name="albumtitle"]', '#albumTitleInput'], title);
 
-    // アーティスト名
-    await fillInput(page, [
-      'input[name="artist_name"]', 'input[name="artist"]',
-      'input[placeholder*="artist" i]', 'input[id*="artist" i]',
-    ], artist);
-    await page.waitForTimeout(800);
-    const dropdown = page.locator('.autocomplete li, [class*="suggestion"] li').first();
-    if (await dropdown.isVisible({ timeout: 1500 }).catch(() => false)) await dropdown.click();
+    // トラックタイトル（name属性がUUIDを含む → placeholder で特定）
+    await fillInput(page, ['input[name^="title_"]', 'input[placeholder*="曲名"]'], title);
 
-    // ジャンル
-    if (genre) await selectOption(page, [
-      'select[name="primaryGenre"]', 'select[name="genre"]', 'select[id*="genre" i]',
-    ], genre);
-    if (subgenre) await selectOption(page, ['select[name="subgenre"]', 'select[id*="subgenre" i]'], subgenre);
-    if (language) await selectOption(page, ['select[name="language"]', 'select[id*="lang" i]'], language);
-    if (releaseDate) await fillInput(page, ['input[name="release_date"]', 'input[type="date"]'], releaseDate);
+    // 言語
+    if (language) await selectOption(page, ['select[name="language"]', '#language'], language);
 
-    // トラックタイトル（"トラック1"のデフォルトを上書き）
-    await fillInput(page, [
-      'input[name="songTitle[]"]', 'input[name="songTitle"]',
-      'input[name="trackTitle"]', 'input[name="track_title"]',
-      'input[id*="songTitle" i]', 'input[id*="song-title" i]',
-    ], title);
+    // ジャンル（第1）
+    if (genre) await selectOption(page, ['select[name="genre1"]', '#genrePrimary'], genre);
 
-    // ソングライター（姓・名）
-    if (songwriterFirstName) {
-      await fillInput(page, [
-        'input[name="songwriterFirstName[]"]', 'input[name="songwriterFirstName"]',
-        'input[placeholder*="名" i]', 'input[id*="songwriter" i]',
-      ], songwriterFirstName);
-    }
-    if (songwriterLastName) {
-      await fillInput(page, [
-        'input[name="songwriterLastName[]"]', 'input[name="songwriterLastName"]',
-        'input[placeholder*="姓" i]',
-      ], songwriterLastName);
-    }
+    // ジャンル（第2）
+    if (secondaryGenre) await selectOption(page, ['select[name="genre2"]', '#genreSecondary'], secondaryGenre);
 
-    // Apple クレジット（演奏者・プロデューサー）
-    if (performerName) {
-      await fillInput(page, [
-        'input[name="performer[]"]', 'input[name="performer"]',
-        'input[id*="performer" i]', 'input[placeholder*="performer" i]',
-        'input[placeholder*="演奏者" i]',
-      ], performerName);
-    }
-    if (producerName) {
-      await fillInput(page, [
-        'input[name="producer[]"]', 'input[name="producer"]',
-        'input[id*="producer" i]', 'input[placeholder*="producer" i]',
-        'input[placeholder*="プロデューサー" i]',
-      ], producerName);
-    }
+    // ソングライター
+    if (songwriterFirstName) await fillInput(page, ['input[name="songwriter_real_name_first1"]'], songwriterFirstName);
+    if (songwriterLastName)  await fillInput(page, ['input[name="songwriter_real_name_last1"]'],  songwriterLastName);
+
+    // Apple クレジット - 演奏者
+    if (performerRole) await selectOption(page, ['#track-1-performer-1-role'], performerRole);
+    if (performerName) await fillInput(page,   ['#track-1-performer-1-name', 'input[name="performer-name"]'], performerName);
+
+    // Apple クレジット - プロデューサー
+    if (producerRole) await selectOption(page, ['#track-1-producer-1-role'], producerRole);
+    if (producerName) await fillInput(page,   ['#track-1-producer-1-name', 'input[name="producer-name"]'], producerName);
 
     log(`  曲情報入力完了`);
     await ss('06-after-metadata');
@@ -206,9 +172,11 @@ async function register({ title, artist, genre, subgenre, language, releaseDate,
     await ss('10-done');
 
     // エラーダイアログが出ていないか確認
-    const errorDialog = page.locator('text=/エラー/', '[role="dialog"]').first();
-    if (await errorDialog.isVisible({ timeout: 2000 }).catch(() => false)) {
-      const errorText = await errorDialog.innerText().catch(() => '不明なエラー');
+    const errorVisible = await page.locator('[role="dialog"]:has-text("エラー"), .modal-body:has-text("エラー")').first()
+      .isVisible({ timeout: 3000 }).catch(() => false);
+    if (errorVisible) {
+      const errorText = await page.locator('[role="dialog"], .modal-body').first()
+        .innerText().catch(() => '不明なエラー');
       throw new Error(`送信後にエラーダイアログが表示されました: ${errorText}`);
     }
 
