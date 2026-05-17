@@ -240,6 +240,7 @@ async function fillInput(page, selectors, value) {
   for (const sel of selectors) {
     const el = page.locator(sel).first();
     if (await el.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await el.scrollIntoViewIfNeeded().catch(() => {});
       await el.clear();
       await el.fill(value);
       return true;
@@ -252,6 +253,7 @@ async function selectOption(page, selectors, value) {
   for (const sel of selectors) {
     const el = page.locator(sel).first();
     if (await el.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await el.scrollIntoViewIfNeeded().catch(() => {});
       await el.selectOption({ label: value }).catch(() =>
         el.selectOption({ value }).catch(() => {})
       );

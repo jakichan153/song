@@ -6,8 +6,8 @@
   "logFile": "./logs/watcher.log",
   "defaults": {
     "artist": "Mai",
-    "genre": "J-Pop",
-    "secondaryGenre": "Rock",
+    "genre": "J-POP",
+    "secondaryGenre": "ロック",
     "language": "Japanese",
     "songwriterFirstName": "舞",
     "songwriterLastName": "後藤",
