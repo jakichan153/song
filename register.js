@@ -5,7 +5,8 @@ const path = require('path');
 const fs = require('fs');
 const config = require('./config.json');
 
-async function register({ title, artist, genre, subgenre, language, releaseDate, audioPath, coverPath }) {
+async function register({ title, artist, genre, subgenre, language, releaseDate, audioPath, coverPath,
+  songwriterFirstName, songwriterLastName, performerName, producerName }) {
   if (!fs.existsSync(config.sessionFile)) {
     throw new Error(`セッションファイルがありません。先に node setup.js を実行してください。`);
   }
@@ -92,11 +93,25 @@ async function register({ title, artist, genre, subgenre, language, releaseDate,
     // --- メタデータ入力 ---
     await ss('05-before-metadata');
 
+    // 全フォームフィールドをログ出力（デバッグ用）
+    const allFormFields = await page.evaluate(() => ({
+      inputs: Array.from(document.querySelectorAll('input:not([type="file"])')).map((el, i) => ({
+        i, type: el.type, name: el.name, id: el.id, placeholder: el.placeholder, value: el.value,
+      })),
+      selects: Array.from(document.querySelectorAll('select')).map((el, i) => ({
+        i, name: el.name, id: el.id,
+      })),
+    }));
+    log(`  フォームフィールド: ${JSON.stringify(allFormFields)}`);
+
+    // アルバム（リリース）タイトル
     await fillInput(page, [
+      'input[name="albumTitle"]', 'input[name="album_title"]',
       'input[name="song_title"]', 'input[name="title"]',
-      'input[placeholder*="title" i]', 'input[id*="title" i]',
+      'input[placeholder*="title" i]', 'input[id*="albumTitle" i]',
     ], title);
 
+    // アーティスト名
     await fillInput(page, [
       'input[name="artist_name"]', 'input[name="artist"]',
       'input[placeholder*="artist" i]', 'input[id*="artist" i]',
@@ -105,10 +120,50 @@ async function register({ title, artist, genre, subgenre, language, releaseDate,
     const dropdown = page.locator('.autocomplete li, [class*="suggestion"] li').first();
     if (await dropdown.isVisible({ timeout: 1500 }).catch(() => false)) await dropdown.click();
 
-    if (genre) await selectOption(page, ['select[name="genre"]', 'select[id*="genre" i]'], genre);
+    // ジャンル
+    if (genre) await selectOption(page, [
+      'select[name="primaryGenre"]', 'select[name="genre"]', 'select[id*="genre" i]',
+    ], genre);
     if (subgenre) await selectOption(page, ['select[name="subgenre"]', 'select[id*="subgenre" i]'], subgenre);
     if (language) await selectOption(page, ['select[name="language"]', 'select[id*="lang" i]'], language);
     if (releaseDate) await fillInput(page, ['input[name="release_date"]', 'input[type="date"]'], releaseDate);
+
+    // トラックタイトル（"トラック1"のデフォルトを上書き）
+    await fillInput(page, [
+      'input[name="songTitle[]"]', 'input[name="songTitle"]',
+      'input[name="trackTitle"]', 'input[name="track_title"]',
+      'input[id*="songTitle" i]', 'input[id*="song-title" i]',
+    ], title);
+
+    // ソングライター（姓・名）
+    if (songwriterFirstName) {
+      await fillInput(page, [
+        'input[name="songwriterFirstName[]"]', 'input[name="songwriterFirstName"]',
+        'input[placeholder*="名" i]', 'input[id*="songwriter" i]',
+      ], songwriterFirstName);
+    }
+    if (songwriterLastName) {
+      await fillInput(page, [
+        'input[name="songwriterLastName[]"]', 'input[name="songwriterLastName"]',
+        'input[placeholder*="姓" i]',
+      ], songwriterLastName);
+    }
+
+    // Apple クレジット（演奏者・プロデューサー）
+    if (performerName) {
+      await fillInput(page, [
+        'input[name="performer[]"]', 'input[name="performer"]',
+        'input[id*="performer" i]', 'input[placeholder*="performer" i]',
+        'input[placeholder*="演奏者" i]',
+      ], performerName);
+    }
+    if (producerName) {
+      await fillInput(page, [
+        'input[name="producer[]"]', 'input[name="producer"]',
+        'input[id*="producer" i]', 'input[placeholder*="producer" i]',
+        'input[placeholder*="プロデューサー" i]',
+      ], producerName);
+    }
 
     log(`  曲情報入力完了`);
     await ss('06-after-metadata');
@@ -147,9 +202,15 @@ async function register({ title, artist, genre, subgenre, language, releaseDate,
     }
     if (!submitted) throw new Error('送信ボタンが見つかりませんでした');
 
-    await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(4000);
     await ss('10-done');
+
+    // エラーダイアログが出ていないか確認
+    const errorDialog = page.locator('text=/エラー/', '[role="dialog"]').first();
+    if (await errorDialog.isVisible({ timeout: 2000 }).catch(() => false)) {
+      const errorText = await errorDialog.innerText().catch(() => '不明なエラー');
+      throw new Error(`送信後にエラーダイアログが表示されました: ${errorText}`);
+    }
 
     const finalUrl = page.url();
     log(`✅ 登録完了: ${finalUrl}`);

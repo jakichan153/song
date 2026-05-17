@@ -77,6 +77,10 @@ async function processFolder(songDir) {
     releaseDate: meta.releaseDate || '',
     audioPath: path.join(songDir, audioFile),
     coverPath: path.join(songDir, coverFile),
+    songwriterFirstName: meta.songwriterFirstName || config.defaults.songwriterFirstName || '',
+    songwriterLastName: meta.songwriterLastName || config.defaults.songwriterLastName || '',
+    performerName: meta.performerName || config.defaults.performerName || '',
+    producerName: meta.producerName || config.defaults.producerName || '',
   };
 
   try {

@@ -7,6 +7,10 @@
   "defaults": {
     "artist": "Mai",
     "genre": "Pop",
-    "language": "Japanese"
+    "language": "Japanese",
+    "songwriterFirstName": "舞",
+    "songwriterLastName": "後藤",
+    "performerName": "Mai",
+    "producerName": "後藤 舞"
   }
 }
