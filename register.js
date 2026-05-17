@@ -128,6 +128,8 @@ async function register({ title, artist, genre, subgenre, language, releaseDate,
     // --- 送信 ---
     await ss('09-before-submit');
     const submitSelectors = [
+      'button:has-text("続ける")',
+      'input[value="続ける"]',
       'button[type="submit"]', 'input[type="submit"]',
       'button:has-text("Submit")', 'button:has-text("Upload")',
       'button:has-text("Publish")', 'button:has-text("送信")',
