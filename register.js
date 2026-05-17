@@ -36,25 +36,12 @@ async function register({ title, artist, genre, subgenre, language, releaseDate,
   try {
     log(`[登録開始] "${title}" - ${artist}`);
 
-    await page.goto('https://distrokid.com/upload/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto('https://distrokid.com/new/', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(3000);
     await ss('01-upload-page');
 
     if (page.url().includes('login') || page.url().includes('vip')) {
       throw new Error('セッションが切れています。node setup.js を再実行してください。');
-    }
-
-    // ダッシュボードにリダイレクトされた場合は「楽曲をアップロード」ボタンをクリック
-    const uploadBtnClicked = await clickIfVisible(page, [
-      'a:has-text("楽曲をアップロード")',
-      'button:has-text("楽曲をアップロード")',
-      'a:has-text("Upload Song")',
-      'button:has-text("Upload Song")',
-    ]);
-    if (uploadBtnClicked) {
-      log('  「楽曲をアップロード」ボタンをクリックしました');
-      await page.waitForTimeout(3000);
-      await ss('01b-after-upload-btn');
     }
 
     // ページ上の全file inputを列挙してログに出す
