@@ -108,8 +108,22 @@ async function register({ title, artist, genre, subgenre, secondaryGenre, langua
     // アルバムタイトル
     await fillInput(page, ['input[name="albumtitle"]', '#albumTitleInput'], title);
 
-    // トラックタイトル（name属性がUUIDを含む → placeholder で特定）
-    await fillInput(page, ['input[name^="title_"]', 'input[placeholder*="曲名"]'], title);
+    // トラックタイトル（name属性がUUIDを含む → placeholder/name で特定）
+    const trackTitleFilled = await fillInput(page, [
+      'input[name^="title_"]',
+      'input[placeholder*="曲名"]',
+      'input[placeholder*="Track"]',
+      'input[placeholder*="track"]',
+    ], title);
+    if (!trackTitleFilled) {
+      // フォールバック: 全inputのplaceholderをログして最初の空テキスト欄に入力
+      const allTextInputs = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('input[type="text"], input:not([type])')).map((el, i) => ({
+          i, name: el.name, id: el.id, placeholder: el.placeholder, value: el.value,
+        }))
+      );
+      log(`  トラックタイトル欄が見つかりません。全テキスト入力: ${JSON.stringify(allTextInputs)}`);
+    }
 
     // 言語
     if (language) await selectOption(page, ['select[name="language"]', '#language'], language);
@@ -162,23 +176,58 @@ async function register({ title, artist, genre, subgenre, secondaryGenre, langua
       'areyousureticktokcml', 'areyousuresnap', 'areyousurerecorded',
       'areyousureotherartist', 'areyousuretandc',
     ];
+    // ページ下部にスクロールしてチェックボックスを表示させる
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(1000);
+
+    let checkedCount = 0;
     for (const id of areYouSureIds) {
       const cb = page.locator(`#${id}`);
-      if (await cb.isVisible({ timeout: 1000 }).catch(() => false)) {
-        const checked = await cb.isChecked().catch(() => false);
-        if (!checked) {
-          await cb.scrollIntoViewIfNeeded().catch(() => {});
-          await cb.check();
-        }
+      // DOMに存在するかチェック（非表示でもOK）
+      const exists = await cb.count() > 0;
+      if (!exists) continue;
+      await cb.scrollIntoViewIfNeeded().catch(() => {});
+      const checked = await cb.isChecked().catch(() => false);
+      if (!checked) {
+        await cb.check({ force: true }).catch(async () => {
+          // チェックできない場合はlabelをクリック
+          const label = page.locator(`label[for="${id}"]`);
+          if (await label.isVisible({ timeout: 1000 }).catch(() => false)) {
+            await label.click();
+          }
+        });
+        checkedCount++;
       }
     }
-    log('  重要事項チェックボックスにチェックしました');
+
+    // id不明のチェックボックスも全てチェック（ページ上の全チェックボックス）
+    const allCheckboxes = await page.locator('input[type="checkbox"]').all();
+    for (const cb of allCheckboxes) {
+      const checked = await cb.isChecked().catch(() => true);
+      if (!checked) {
+        await cb.scrollIntoViewIfNeeded().catch(() => {});
+        await cb.check({ force: true }).catch(() => {});
+        checkedCount++;
+      }
+    }
+    log(`  重要事項チェックボックスにチェックしました (${checkedCount}個)`);
+    await ss('08b-after-checkboxes');
 
     // --- 送信 ---
     await ss('09-before-submit');
+
+    // 送信前にフォームの全バリデーション状態を記録
+    const preSubmitState = await page.evaluate(() => {
+      const invalids = Array.from(document.querySelectorAll(':invalid, .has-error, .error, [class*="invalid"]'))
+        .map(el => ({ tag: el.tagName, name: el.name, id: el.id, class: el.className.slice(0, 60) }));
+      return { invalids };
+    });
+    log(`  送信前バリデーション状態: ${JSON.stringify(preSubmitState)}`);
+
     const submitSelectors = [
-      'button:has-text("続ける")',
       'input[value="続ける"]',
+      '#doneButton',
+      'button:has-text("続ける")',
       'button[type="submit"]', 'input[type="submit"]',
       'button:has-text("Submit")', 'button:has-text("Upload")',
       'button:has-text("Publish")', 'button:has-text("送信")',
@@ -188,6 +237,7 @@ async function register({ title, artist, genre, subgenre, secondaryGenre, langua
     for (const sel of submitSelectors) {
       const btn = page.locator(sel).last();
       if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await btn.scrollIntoViewIfNeeded().catch(() => {});
         await btn.click();
         submitted = true;
         log(`  送信ボタンクリック: ${sel}`);
@@ -196,16 +246,55 @@ async function register({ title, artist, genre, subgenre, secondaryGenre, langua
     }
     if (!submitted) throw new Error('送信ボタンが見つかりませんでした');
 
-    await page.waitForTimeout(4000);
-    await ss('10-done');
+    // ナビゲーションを待つ（最大20秒）。URLが変わればOK
+    const urlBefore = page.url();
+    await page.waitForTimeout(2000);
+    await ss('10-after-submit');
 
-    // エラーダイアログが出ていないか確認
-    const errorVisible = await page.locator('[role="dialog"]:has-text("エラー"), .modal-body:has-text("エラー")').first()
-      .isVisible({ timeout: 3000 }).catch(() => false);
-    if (errorVisible) {
-      const errorText = await page.locator('[role="dialog"], .modal-body').first()
-        .innerText().catch(() => '不明なエラー');
-      throw new Error(`送信後にエラーダイアログが表示されました: ${errorText}`);
+    // 最大15秒、URLが変わるか定期的にチェック
+    let navigated = false;
+    for (let i = 0; i < 15; i++) {
+      await page.waitForTimeout(1000);
+      if (page.url() !== urlBefore) {
+        navigated = true;
+        break;
+      }
+    }
+
+    await ss('11-done');
+    log(`  送信後URL: ${page.url()} (変化: ${navigated})`);
+
+    if (!navigated) {
+      // ページが変わっていない → バリデーションエラーを収集して報告
+      const postSubmitErrors = await page.evaluate(() => {
+        const msgs = [];
+        // インラインエラーメッセージを収集
+        document.querySelectorAll('.invalid-feedback, .help-block, .error-msg, [class*="error"]:not(input):not(select)').forEach(el => {
+          const text = el.innerText.trim();
+          if (text) msgs.push(text);
+        });
+        // :invalid な要素を収集
+        document.querySelectorAll(':invalid').forEach(el => {
+          msgs.push(`未入力/無効: ${el.name || el.id || el.tagName} (value="${el.value}")`);
+        });
+        // 赤くなっている要素（DistroKidはhas-errorクラスを使う場合）
+        document.querySelectorAll('.has-error label, .has-error .control-label').forEach(el => {
+          msgs.push(`バリデーションエラー: ${el.innerText.trim()}`);
+        });
+        return msgs.filter((v, i, a) => a.indexOf(v) === i); // 重複除去
+      });
+      log(`  フォームバリデーションエラー: ${JSON.stringify(postSubmitErrors)}`);
+
+      // エラーダイアログ確認
+      const errorVisible = await page.locator('[role="dialog"]:has-text("エラー"), .modal-body:has-text("エラー")').first()
+        .isVisible({ timeout: 3000 }).catch(() => false);
+      if (errorVisible) {
+        const errorText = await page.locator('[role="dialog"], .modal-body').first()
+          .innerText().catch(() => '不明なエラー');
+        throw new Error(`送信後にエラーダイアログが表示されました: ${errorText}`);
+      }
+
+      throw new Error(`フォーム送信後もページが変わりませんでした。バリデーションエラー: ${postSubmitErrors.join(' / ') || '（検出なし）'}`);
     }
 
     const finalUrl = page.url();
@@ -268,8 +357,15 @@ async function fillInput(page, selectors, value) {
     const el = page.locator(sel).first();
     if (await el.isVisible({ timeout: 2000 }).catch(() => false)) {
       await el.scrollIntoViewIfNeeded().catch(() => {});
-      await el.clear();
+      await el.click();
+      await el.selectAll ? el.selectAll() : null;
+      // triple-click to select all then type
+      await el.click({ clickCount: 3 });
       await el.fill(value);
+      // React/Vue等フレームワーク向けにネイティブイベントを発火
+      await el.dispatchEvent('input');
+      await el.dispatchEvent('change');
+      await page.waitForTimeout(300);
       return true;
     }
   }
@@ -281,9 +377,13 @@ async function selectOption(page, selectors, value) {
     const el = page.locator(sel).first();
     if (await el.isVisible({ timeout: 2000 }).catch(() => false)) {
       await el.scrollIntoViewIfNeeded().catch(() => {});
-      await el.selectOption({ label: value }).catch(() =>
-        el.selectOption({ value }).catch(() => {})
-      );
+      // label検索 → value検索の順に試す
+      const ok = await el.selectOption({ label: value }).then(() => true).catch(() => false)
+        || await el.selectOption({ value }).then(() => true).catch(() => false);
+      if (ok) {
+        await el.dispatchEvent('change');
+        await page.waitForTimeout(300);
+      }
       return true;
     }
   }
