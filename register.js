@@ -156,6 +156,24 @@ async function register({ title, artist, genre, subgenre, secondaryGenre, langua
     log(`  カバーアートアップロード完了`);
     await ss('08-after-cover-upload');
 
+    // --- 重要事項チェックボックスを全てチェック ---
+    const areYouSureIds = [
+      'areyousureyoutube', 'areyousurenonstandardscaps', 'areyousurepromoservices',
+      'areyousureticktokcml', 'areyousuresnap', 'areyousurerecorded',
+      'areyousureotherartist', 'areyousuretandc',
+    ];
+    for (const id of areYouSureIds) {
+      const cb = page.locator(`#${id}`);
+      if (await cb.isVisible({ timeout: 1000 }).catch(() => false)) {
+        const checked = await cb.isChecked().catch(() => false);
+        if (!checked) {
+          await cb.scrollIntoViewIfNeeded().catch(() => {});
+          await cb.check();
+        }
+      }
+    }
+    log('  重要事項チェックボックスにチェックしました');
+
     // --- 送信 ---
     await ss('09-before-submit');
     const submitSelectors = [
