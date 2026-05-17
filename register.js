@@ -100,6 +100,7 @@ async function register({ title, artist, genre, subgenre, secondaryGenre, langua
       })),
       selects: Array.from(document.querySelectorAll('select')).map((el, i) => ({
         i, name: el.name, id: el.id,
+        options: Array.from(el.options).map(o => ({ value: o.value, text: o.text })),
       })),
     }));
     log(`  フォームフィールド: ${JSON.stringify(allFormFields)}`);
