@@ -1,9 +1,0 @@
-node_modules/
-.env
-session.json
-logs/
-*.png
-*.wav
-*.mp3
-*.flac
-*.aiff
